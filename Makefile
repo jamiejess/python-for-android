@@ -14,13 +14,15 @@ PYTHON_WITH_VERSION=python$(PYTHON_VERSION)
 DOCKER_IMAGE=kivy/python-for-android
 ANDROID_SDK_HOME ?= $(HOME)/.android/android-sdk
 ANDROID_NDK_HOME ?= $(HOME)/.android/android-ndk
+ANDROID_NDK_HOME_LEGACY ?= $(HOME)/.android/android-ndk-legacy
+REBUILD_UPDATED_RECIPES_EXTRA_ARGS ?= ''
 
 
 all: virtualenv
 
 $(VIRTUAL_ENV):
-	virtualenv --python=$(PYTHON_WITH_VERSION) $(VIRTUAL_ENV)
-	$(PIP) install Cython==0.28.6
+	python3 -m venv $(VIRTUAL_ENV)
+	$(PIP) install Cython==0.29.36
 	$(PIP) install -e .
 
 virtualenv: $(VIRTUAL_ENV)
@@ -28,28 +30,63 @@ virtualenv: $(VIRTUAL_ENV)
 # ignores test_pythonpackage.py since it runs for too long
 test:
 	$(TOX) -- tests/ --ignore tests/test_pythonpackage.py
-	@if test -n "$$CI"; then .tox/py$(PYTHON_MAJOR_MINOR)/bin/coveralls; fi; \
 
 rebuild_updated_recipes: virtualenv
 	. $(ACTIVATE) && \
 	ANDROID_SDK_HOME=$(ANDROID_SDK_HOME) ANDROID_NDK_HOME=$(ANDROID_NDK_HOME) \
-	$(PYTHON) ci/rebuild_updated_recipes.py
+	$(PYTHON) ci/rebuild_updated_recipes.py $(REBUILD_UPDATED_RECIPES_EXTRA_ARGS)
 
-testapps/python2/armeabi-v7a: virtualenv
-	. $(ACTIVATE) && cd testapps/ && \
-    python setup_testapp_python2_sqlite_openssl.py apk --sdk-dir $(ANDROID_SDK_HOME) --ndk-dir $(ANDROID_NDK_HOME) \
-    --requirements sdl2,pyjnius,kivy,python2,openssl,requests,sqlite3,setuptools
+testapps-with-numpy: testapps-with-numpy/debug/apk testapps-with-numpy/release/aab
 
-testapps/python3/arm64-v8a: virtualenv
-	. $(ACTIVATE) && cd testapps/ && \
-    python setup_testapp_python3_sqlite_openssl.py apk --sdk-dir $(ANDROID_SDK_HOME) --ndk-dir $(ANDROID_NDK_HOME) \
-    --requirements libffi,sdl2,pyjnius,kivy,python3,openssl,requests,sqlite3,setuptools,numpy \
-    --arch=arm64-v8a
+# testapps-with-numpy/MODE/ARTIFACT
+testapps-with-numpy/%: virtualenv
+	$(eval MODE := $(word 2, $(subst /, ,$@)))
+	$(eval ARTIFACT := $(word 3, $(subst /, ,$@)))
+	@echo Building testapps-with-numpy for $(MODE) mode and $(ARTIFACT) artifact
+	. $(ACTIVATE) && cd testapps/on_device_unit_tests/ && \
+    python setup.py $(ARTIFACT) --$(MODE) --sdk-dir $(ANDROID_SDK_HOME) --ndk-dir $(ANDROID_NDK_HOME) \
+    --requirements libffi,sdl2,pyjnius,kivy,python3,openssl,requests,urllib3,chardet,idna,sqlite3,setuptools,numpy \
+    --arch=armeabi-v7a --arch=arm64-v8a --arch=x86_64 --arch=x86 \
+	--permission "(name=android.permission.WRITE_EXTERNAL_STORAGE;maxSdkVersion=18)" --permission "(name=android.permission.INTERNET)"
 
-testapps/python3/armeabi-v7a: virtualenv
-	. $(ACTIVATE) && cd testapps/ && \
-    python setup_testapp_python3_sqlite_openssl.py apk --sdk-dir $(ANDROID_SDK_HOME) --ndk-dir $(ANDROID_NDK_HOME) \
-    --arch=armeabi-v7a
+testapps-with-scipy: testapps-with-scipy/debug/apk testapps-with-scipy/release/aab
+
+# testapps-with-scipy/MODE/ARTIFACT
+testapps-with-scipy/%: virtualenv
+	$(eval MODE := $(word 2, $(subst /, ,$@)))
+	$(eval ARTIFACT := $(word 3, $(subst /, ,$@)))
+	@echo Building testapps-with-scipy for $(MODE) mode and $(ARTIFACT) artifact
+	. $(ACTIVATE) && cd testapps/on_device_unit_tests/ && \
+	export LEGACY_NDK=$(ANDROID_NDK_HOME_LEGACY)  && \
+    python setup.py $(ARTIFACT) --$(MODE) --sdk-dir $(ANDROID_SDK_HOME) --ndk-dir $(ANDROID_NDK_HOME) \
+    --requirements python3,scipy,kivy \
+    --arch=armeabi-v7a --arch=arm64-v8a
+
+testapps-webview: testapps-webview/debug/apk testapps-webview/release/aab
+
+# testapps-webview/MODE/ARTIFACT
+testapps-webview/%: virtualenv
+	$(eval MODE := $(word 2, $(subst /, ,$@)))
+	$(eval ARTIFACT := $(word 3, $(subst /, ,$@)))
+	@echo Building testapps-webview for $(MODE) mode and $(ARTIFACT) artifact
+	. $(ACTIVATE) && cd testapps/on_device_unit_tests/ && \
+    python setup.py $(ARTIFACT) --$(MODE) --sdk-dir $(ANDROID_SDK_HOME) --ndk-dir $(ANDROID_NDK_HOME) \
+    --bootstrap webview \
+    --requirements sqlite3,libffi,openssl,pyjnius,flask,python3,genericndkbuild \
+    --arch=armeabi-v7a --arch=arm64-v8a --arch=x86_64 --arch=x86
+
+testapps-service_library-aar: virtualenv 
+	. $(ACTIVATE) && cd testapps/on_device_unit_tests/ && \
+    python setup.py aar --sdk-dir $(ANDROID_SDK_HOME) --ndk-dir $(ANDROID_NDK_HOME) \
+    --bootstrap service_library \
+    --requirements python3 \
+    --arch=arm64-v8a --arch=x86 --release
+
+testapps/%: virtualenv
+	$(eval $@_APP_ARCH := $(shell basename $*))
+	. $(ACTIVATE) && cd testapps/on_device_unit_tests/ && \
+    python setup.py apk --sdk-dir $(ANDROID_SDK_HOME) --ndk-dir $(ANDROID_NDK_HOME) \
+    --arch=$($@_APP_ARCH)
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -r {} +
@@ -62,7 +99,7 @@ docker/pull:
 	docker pull $(DOCKER_IMAGE):latest || true
 
 docker/build:
-	docker build --cache-from=$(DOCKER_IMAGE) --tag=$(DOCKER_IMAGE) --file=Dockerfile.py3 .
+	docker build --cache-from=$(DOCKER_IMAGE) --tag=$(DOCKER_IMAGE) .
 
 docker/push:
 	docker push $(DOCKER_IMAGE)
@@ -73,19 +110,11 @@ docker/run/test: docker/build
 docker/run/command: docker/build
 	docker run --rm --env-file=.env $(DOCKER_IMAGE) /bin/sh -c "$(COMMAND)"
 
+docker/run/make/rebuild_updated_recipes: docker/build
+	docker run --name p4a-latest -e REBUILD_UPDATED_RECIPES_EXTRA_ARGS --env-file=.env $(DOCKER_IMAGE) make rebuild_updated_recipes
+
 docker/run/make/%: docker/build
 	docker run --rm --env-file=.env $(DOCKER_IMAGE) make $*
-
-docker/run/make/with-artifact/%: docker/build
-ifeq (,$(findstring python3,$($*)))
-	$(eval $@_APP_NAME := bdisttest_python3_sqlite_openssl_googlendk)
-else
-	$(eval $@_APP_NAME := bdisttest_python2_sqlite_openssl)
-endif
-	$(eval $@_APP_ARCH := $(shell basename $*))
-	docker run --name p4a-latest --env-file=.env $(DOCKER_IMAGE) make $*
-	docker cp p4a-latest:/home/user/app/testapps/$($@_APP_NAME)__$($@_APP_ARCH)-debug-1.1-.apk ./apks
-	docker rm -fv p4a-latest
 
 docker/run/shell: docker/build
 	docker run --rm --env-file=.env -it $(DOCKER_IMAGE)

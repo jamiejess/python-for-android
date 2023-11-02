@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import types
 import unittest
 from unittest import mock
@@ -24,6 +26,7 @@ class TestUtil(unittest.TestCase):
     @mock.patch("shutil.rmtree")
     @mock.patch("pythonforandroid.util.mkdtemp")
     def test_temp_directory(self, mock_mkdtemp, mock_shutil_rmtree):
+
         """
         Basic test for method :meth:`~pythonforandroid.util.temp_directory`. We
         perform this test by `mocking` the command `mkdtemp` and
@@ -69,46 +72,6 @@ class TestUtil(unittest.TestCase):
             "/fake/directory"
         ):
             pass
-
-    @mock.patch("pythonforandroid.util.sh.which")
-    def test_get_virtualenv_executable(self, mock_sh_which):
-        """
-        Test method :meth:`~pythonforandroid.util.get_virtualenv_executable`.
-        In here we test:
-
-            - that all calls to `sh.which` are performed, so we expect the
-              first two `sh.which` calls should be None and the last one should
-              return the expected virtualenv (the python3 one)
-            - that we don't have virtualenv installed, so all calls to
-              `sh.which` should return None
-        """
-        expected_venv = os.path.join(
-            os.path.expanduser("~"), ".local/bin/virtualenv"
-        )
-        mock_sh_which.side_effect = [None, None, expected_venv]
-        self.assertEqual(util.get_virtualenv_executable(), expected_venv)
-        mock_sh_which.assert_has_calls(
-            [
-                mock.call("virtualenv2"),
-                mock.call("virtualenv-2.7"),
-                mock.call("virtualenv"),
-            ]
-        )
-        self.assertEqual(mock_sh_which.call_count, 3)
-        mock_sh_which.reset_mock()
-
-        # Now test that we don't have virtualenv installed, so all calls to
-        # `sh.which` should return None
-        mock_sh_which.side_effect = [None, None, None]
-        self.assertIsNone(util.get_virtualenv_executable())
-        self.assertEqual(mock_sh_which.call_count, 3)
-        mock_sh_which.assert_has_calls(
-            [
-                mock.call("virtualenv2"),
-                mock.call("virtualenv-2.7"),
-                mock.call("virtualenv"),
-            ]
-        )
 
     @mock.patch("pythonforandroid.util.walk")
     def test_walk_valid_filens(self, mock_walk):
@@ -176,3 +139,51 @@ class TestUtil(unittest.TestCase):
         )
         with self.assertRaises(SystemExit):
             util.handle_build_exception(exc)
+
+    def test_move(self):
+        with mock.patch(
+                "pythonforandroid.util.LOGGER"
+        ) as m_logger, TemporaryDirectory() as base_dir:
+            new_path = Path(base_dir) / "new"
+
+            # Set up source
+            old_path = Path(base_dir) / "old"
+            with open(old_path, "w") as outfile:
+                outfile.write("Temporary content")
+
+            # Non existent source
+            with self.assertRaises(FileNotFoundError):
+                util.move(new_path, new_path)
+            m_logger.debug.assert_called()
+            m_logger.error.assert_not_called()
+            m_logger.reset_mock()
+            assert old_path.exists()
+            assert not new_path.exists()
+
+            # Successful move
+            util.move(old_path, new_path)
+            assert not old_path.exists()
+            assert new_path.exists()
+            m_logger.debug.assert_called()
+            m_logger.error.assert_not_called()
+            m_logger.reset_mock()
+
+            # Move over existing:
+            existing_path = Path(base_dir) / "existing"
+            existing_path.touch()
+
+            util.move(new_path, existing_path)
+            with open(existing_path, "r") as infile:
+                assert infile.read() == "Temporary content"
+            m_logger.debug.assert_called()
+            m_logger.error.assert_not_called()
+            m_logger.reset_mock()
+
+    def test_touch(self):
+        # Just checking the new file case.
+        # Assume the existing file timestamp case will work if this does.
+        with TemporaryDirectory() as base_dir:
+            new_file_path = Path(base_dir) / "new_file"
+            assert not new_file_path.exists()
+            util.touch(new_file_path)
+            assert new_file_path.exists()

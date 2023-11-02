@@ -26,7 +26,7 @@ Concepts
 
 - **bootstrap:** A bootstrap is the app backend that will start your
   application. The default for graphical applications is SDL2.
-  You can also use e.g. the webview for web apps, or service_only for
+  You can also use e.g. the webview for web apps, or service_only/service_library  for
   background services. Different bootstraps have different additional
   build options.
 
@@ -62,14 +62,16 @@ Installing Dependencies
 p4a has several dependencies that must be installed:
 
 - ant
-- autoconf (for ffpyplayer_codecs recipe)
+- autoconf (for libffi and other recipes)
+- automake
 - ccache (optional)
 - cmake (required for some native code recipes like jpeg's recipe)
 - cython (can be installed via pip)
 - gcc
 - git
 - libncurses (including 32 bit)
-- libtool (for ffpyplayer_codecs recipe)
+- libtool (for libffi and recipes)
+- libssl-dev (for TLS/SSL support on hostpython3 and recipe)
 - openjdk-8
 - patch
 - python3
@@ -83,13 +85,19 @@ install most of these with::
 
     sudo dpkg --add-architecture i386
     sudo apt-get update
-    sudo apt-get install -y build-essential ccache git zlib1g-dev python3 python3-dev libncurses5:i386 libstdc++6:i386 zlib1g:i386 openjdk-8-jdk unzip ant ccache autoconf libtool
+    sudo apt-get install -y build-essential ccache git zlib1g-dev python3 python3-dev libncurses5:i386 libstdc++6:i386 zlib1g:i386 openjdk-8-jdk unzip ant ccache autoconf libtool libssl-dev
 
 On Arch Linux you should be able to run the following to
 install most of the dependencies (note: this list may not be
 complete)::
 
     sudo pacman -S core/autoconf core/automake core/gcc core/make core/patch core/pkgconf extra/cmake extra/jdk8-openjdk extra/python-pip extra/unzip extra/zip
+
+On macOS::
+
+    brew install autoconf automake libtool openssl pkg-config
+    brew tap homebrew/cask-versions
+    brew install --cask homebrew/cask-versions/adoptopenjdk8
 
 Installing Android SDK
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -112,7 +120,7 @@ named ``tools``, and you will need to run extra commands to install
 the SDK packages needed. 
 
 For Android NDK, note that modern releases will only work on a 64-bit
-operating system. **The minimal, and recommended, NDK version to use is r19b:**
+operating system. **The minimal, and recommended, NDK version to use is r25b:**
 
  - `Go to ndk downloads page <https://developer.android.com/ndk/downloads/>`_
  - Windows users should create a virtual machine with an GNU Linux os
@@ -146,7 +154,7 @@ variables necessary for building on android::
 
     # Adjust the paths!
     export ANDROIDSDK="$HOME/Documents/android-sdk-27"
-    export ANDROIDNDK="$HOME/Documents/android-ndk-r19b"
+    export ANDROIDNDK="$HOME/Documents/android-ndk-r23b"
     export ANDROIDAPI="27"  # Target API version of your application
     export NDKAPI="21"  # Minimum supported API version of your application
     export ANDROIDNDKVER="r10e"  # Version of the NDK you installed
@@ -185,9 +193,7 @@ an `.apk` file.
 
 *Compatibility notes:*
 
-- While python2 is still supported by python-for-android,
-  it will possibly no longer receive patches by the python creators
-  themselves in 2020. Migration to Python 3 is recommended!
+- Python 2 is no longer supported by python-for-android. The last release supporting Python 2 was v2019.10.06.
 
 
 Build a WebView application
@@ -206,6 +212,37 @@ You can also replace flask with another web framework.
 
 Replace ``--port=5000`` with the port on which your app will serve a
 website. The default for Flask is 5000.
+
+
+Build a Service library archive
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To build an android archive (.aar), containing an android service , you need a name, version, package identifier, explicitly use the 
+service_library bootstrap, and declare service entry point (See :ref:`services <arbitrary_scripts_services>` for more options), as well as the requirements and arch(s)::
+
+    p4a aar --private $HOME/code/myapp --package=org.example.myapp --name "My library" --version 0.1 --bootstrap=service_library --requirements=python3 --release --service=myservice:service.py --arch=arm64-v8a --arch=armeabi-v7a
+
+
+You can then call the generated Java entrypoint(s) for your Python service(s) in other apk build frameworks.
+
+
+Exporting the Android App Bundle (aab) for distributing it on Google Play
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Starting from August 2021 for new apps and from November 2021 for updates to existings apps,
+Google Play Console will require the Android App Bundle instead of the long lived apk.
+
+python-for-android handles by itself the needed work to accomplish the new requirements::
+
+    p4a aab --private $HOME/code/myapp --package=org.example.myapp --name="My App" --version 0.1 --bootstrap=sdl2 --requirements=python3,kivy --arch=arm64-v8a --arch=armeabi-v7a --release
+
+This `p4a aab ...` command builds a distribution with `python3`,
+`kivy`, and everything else you specified in the requirements.
+It will be packaged using a SDL2 bootstrap, and produce
+an `.aab` file that contains binaries for both `armeabi-v7a` and `arm64-v8a` ABIs.
+
+The Android App Bundle, is supposed to be used for distributing your app.
+If you need to test it locally, on your device, you can use `bundletool <https://developer.android.com/studio/command-line/bundletool>`
 
 Other options
 ~~~~~~~~~~~~~

@@ -13,19 +13,17 @@ class TestLibmysqlclientRecipe(BaseTestForCmakeRecipe, unittest.TestCase):
     @mock.patch("pythonforandroid.recipes.libmysqlclient.sh.cp")
     @mock.patch("pythonforandroid.util.chdir")
     @mock.patch("pythonforandroid.build.ensure_dir")
-    @mock.patch("pythonforandroid.archs.glob")
     @mock.patch("pythonforandroid.archs.find_executable")
     def test_build_arch(
         self,
         mock_find_executable,
-        mock_glob,
         mock_ensure_dir,
         mock_current_directory,
         mock_sh_cp,
         mock_sh_rm,
     ):
         # We overwrite the base test method because we need
-        # to mock a little more (`sh.cp` and `sh.rm`)
+        # to mock a little more (`sh.cp` and rmdir)
         super().test_build_arch()
         # make sure that the mocked methods are actually called
         mock_sh_cp.assert_called()

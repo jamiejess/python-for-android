@@ -8,39 +8,13 @@ This page contains instructions for using different build options.
 Python versions
 ---------------
 
-python2
-~~~~~~~
+python-for-android supports using Python 3.8 or higher. To explicitly select a Python
+version in your requirements, use e.g. ``--requirements=python3==3.10.11,hostpython3==3.10.11``.
 
-Select this by adding it in your requirements, e.g. ``--requirements=python2``.
+The last python-for-android version supporting Python2 was `v2019.10.06 <https://github.com/kivy/python-for-android/archive/v2019.10.06.zip>`__
 
-This option builds Python 2.7.2 for your selected Android
-architecture. There are no special requirements, all the building is
-done locally.
-
-
-python3
-~~~~~~~
-
-Python3 is supported in two ways. The default method uses CPython 3.7+
-and works with any recent version of the Android NDK.
-
-Select Python 3 by adding it to your requirements,
-e.g. ``--requirements=python3``.
-
-.. note:: ctypes is not included automatically, if you would like to use it
-          then add libffi to your requirements,
-          e.g. ``--requirements=kivy,libffi,python3``.
-
-
-CrystaX python3
-~~~~~~~~~~~~~~~
-
-python-for-android no longer supports building for Python 3 using the CrystaX
-NDK. Instead, use the python3 recipe, which can be built using the normal
-Google NDK.
-
-.. note:: The last python-for-android version supporting CrystaX was `0.7.0.
-          <https://github.com/kivy/python-for-android/archive/0.7.0.zip>`__
+Python-for-android no longer supports building for Python 3 using the CrystaX
+NDK. The last python-for-android version supporting CrystaX was `0.7.0 <https://github.com/kivy/python-for-android/archive/0.7.0.zip>`__
 
 .. _bootstrap_build_options:
 
@@ -60,7 +34,7 @@ sdl2
 ~~~~
 
 Use this with ``--bootstrap=sdl2``, or just include the
-``sdl2`` recipe, e.g. ``--requirements=sdl2,python2``.
+``sdl2`` recipe, e.g. ``--requirements=sdl2,python3``.
 
 SDL2 is a popular cross-platform depelopment library, particularly for
 games. It has its own Android project support, which
@@ -83,21 +57,44 @@ options (this list may not be exhaustive):
 - ``--package``: The Java package name for your project. e.g. ``org.example.yourapp``.
 - ``--name``: The app name.
 - ``--version``: The version number.
-- ``--orientation``: Usually one of ``portait``, ``landscape``,
-  ``sensor`` to automatically rotate according to the device
-  orientation, or ``user`` to do the same but obeying the user's
-  settings. The full list of valid options is given under
-  ``android:screenOrientation`` in the `Android documentation
-  <https://developer.android.com/guide/topics/manifest/activity-element.html>`__.
+- ``--orientation``: The orientations that the app will display in.
+  (Available options are ``portrait``, ``landscape``, ``portrait-reverse``, ``landscape-reverse``).
+  Since Android ignores ``android:screenOrientation`` when in multi-window mode
+  (Which is the default on Android 12+), this option will also set the window orientation hints
+  for the SDL bootstrap. If multiple orientations are given,
+``android:screenOrientation`` will be set to ``unspecified``.
+- ``--manifest-orientation``: The orientation that will be set for the ``android:screenOrientation``
+  attribute of the activity in the ``AndroidManifest.xml`` file. If not set, the value 
+  will be synthesized from the ``--orientation`` option.
+  The full list of valid options is given under ``android:screenOrientation``
+  in the `Android documentation <https://developer.android.com/guide/topics/manifest/activity-element.html>`__.
 - ``--icon``: A path to the png file to use as the application icon.
-- ``--permission``: A permission name for the app,
-  e.g. ``--permission VIBRATE``. For multiple permissions, add
-  multiple ``--permission`` arguments.
+- ``--permission``: A permission that needs to be declared into the App ``AndroidManifest.xml``.
+  For multiple permissions, add multiple ``--permission`` arguments.
+  ``--home-app`` Gives you the option to set your application as a home app (launcher) on your Android device.
+
+  .. Note ::
+    ``--permission`` accepts the following syntaxes: 
+    ``--permission (name=android.permission.WRITE_EXTERNAL_STORAGE;maxSdkVersion=18)``
+    or ``--permission android.permission.WRITE_EXTERNAL_STORAGE``.
+
+    The first syntax is used to set additional properties to the permission 
+    (``android:maxSdkVersion`` and ``android:usesPermissionFlags`` are the only ones supported for now).
+
+    The second one can be used when there's no need to add any additional properties.
+
+  .. Warning ::
+    The syntax ``--permission VIBRATE`` (only the permission name, without the prefix),
+    is also supported for backward compatibility, but it will be removed in the future.
+
+
 - ``--meta-data``: Custom key=value pairs to add in the application metadata.
 - ``--presplash``: A path to the image file to use as a screen while
   the application is loading.
 - ``--presplash-color``: The presplash screen background color, of the
   form ``#RRGGBB`` or a color name ``red``, ``green``, ``blue`` etc.
+- ``--presplash-lottie``: use a lottie (json) file as a presplash animation. If
+  used, this will replace the static presplash image.
 - ``--wakelock``: If the argument is included, the application will
   prevent the device from sleeping.
 - ``--window``: If the argument is included, the application will not
@@ -113,14 +110,16 @@ options (this list may not be exhaustive):
 - ``--service``: A service name and the Python script it should
   run. See :ref:`arbitrary_scripts_services`.
 - ``--add-source``: Add a source directory to the app's Java code.
-- ``--no-compile-pyo``: Do not optimise .py files to .pyo.
+- ``--no-byte-compile-python``: Skip byte compile for .py files.
+- ``--enable-androidx``: Enable AndroidX support library.
+- ``--add-resource``: Put this file or directory in the apk res directory.
 
 
 webview
 ~~~~~~~
 
 You can use this with ``--bootstrap=webview``, or include the
-``webviewjni`` recipe, e.g. ``--requirements=webviewjni,python2``.
+``webviewjni`` recipe, e.g. ``--requirements=webviewjni,python3``.
 
 The webview bootstrap gui is, per the name, a WebView displaying a
 webpage, but this page is hosted on the device via a Python
@@ -143,14 +142,18 @@ ready.
 - ``--package``: The Java package name for your project. e.g. ``org.example.yourapp``.
 - ``--name``: The app name.
 - ``--version``: The version number.
-- ``--orientation``: Usually one of ``portait``, ``landscape``,
-  ``sensor`` to automatically rotate according to the device
-  orientation, or ``user`` to do the same but obeying the user's
-  settings. The full list of valid options is given under
-  ``android:screenOrientation`` in the `Android documentation
-  <https://developer.android.com/guide/topics/manifest/activity-element.html>`__.
+- ``--orientation``: The orientations that the app will display in.
+  (Available options are ``portrait``, ``landscape``, ``portrait-reverse``, ``landscape-reverse``).
+  Since Android ignores ``android:screenOrientation`` when in multi-window mode
+  (Which is the default on Android 12+), this setting is not guaranteed to work, and
+  you should consider to implement a custom orientation change handler in your app.
+- ``--manifest-orientation``: The orientation that will be set in the ``android:screenOrientation``
+  attribute of the activity in the ``AndroidManifest.xml`` file. If not set, the value 
+  will be synthesized from the ``--orientation`` option.
+  The full list of valid options is given under ``android:screenOrientation``
+  in the `Android documentation <https://developer.android.com/guide/topics/manifest/activity-element.html>`__.
 - ``--icon``: A path to the png file to use as the application icon.
-- ``-- permission``: A permission name for the app,
+- ``--permission``: A permission name for the app,
   e.g. ``--permission VIBRATE``. For multiple permissions, add
   multiple ``--permission`` arguments.
 - ``--meta-data``: Custom key=value pairs to add in the application metadata.
@@ -177,47 +180,29 @@ ready.
   access. Defaults to 5000.
 
 
-Build options
-%%%%%%%%%%%%%
+service_library
+~~~~~~~~~~~~~~~
 
-The sdl2 bootstrap supports the following additional command line
-options (this list may not be exhaustive):
+You can use this with ``--bootstrap=service_library`` option.
+
+
+This bootstrap can be used together with ``aar`` output target to generate
+a library, containing Python services that can be used with other build 
+systems and frameworks.
 
 - ``--private``: The directory containing your project files.
-- ``--dir``: The directory containing your project files if you want
-  them to be unpacked to the external storage directory rather than
-  the app private directory.
 - ``--package``: The Java package name for your project. e.g. ``org.example.yourapp``.
-- ``--name``: The app name.
+- ``--name``: The library name.
 - ``--version``: The version number.
-- ``--orientation``: One of ``portait``, ``landscape`` or ``sensor``
-  to automatically rotate according to the device orientation.
-- ``--icon``: A path to the png file to use as the application icon.
-- ``--ignore-path``: A path to ignore when including the app
-  files. Pass multiple times to ignore multiple paths.
-- ``-- permission``: A permission name for the app,
-  e.g. ``--permission VIBRATE``. For multiple permissions, add
-  multiple ``--permission`` arguments.
-- ``--meta-data``: Custom key=value pairs to add in the application metadata.
-- ``--presplash``: A path to the image file to use as a screen while
-  the application is loading.
-- ``--wakelock``: If the argument is included, the application will
-  prevent the device from sleeping.
-- ``--window``: If the argument is included, the application will not
-  cover the Android status bar.
-- ``--blacklist``: The path to a file containing blacklisted patterns
-  that will be excluded from the final APK. Defaults to ``./blacklist.txt``.
-- ``--whitelist``: The path to a file containing whitelisted patterns
-  that will be included in the APK even if also blacklisted.
-- ``--add-jar``: The path to a .jar file to include in the APK. To
-  include multiple jar files, pass this argument multiple times.
-- ``--intent-filters``: A file path containing intent filter xml to be
-  included in AndroidManifest.xml.
 - ``--service``: A service name and the Python script it should
   run. See :ref:`arbitrary_scripts_services`.
+- ``--blacklist``: The path to a file containing blacklisted patterns
+  that will be excluded from the final AAR. Defaults to ``./blacklist.txt``.
+- ``--whitelist``: The path to a file containing whitelisted patterns
+  that will be included in the AAR even if also blacklisted.
+- ``--add-jar``: The path to a .jar file to include in the APK. To
+  include multiple jar files, pass this argument multiple times.
 - ``add-source``: Add a source directory to the app's Java code.
-- ``--compile-pyo``: Optimise .py files to .pyo.
-- ``--resource``: A key=value pair to add in the string.xml resource file.
 
 
 Requirements blacklist (APK size optimization)

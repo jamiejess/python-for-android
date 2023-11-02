@@ -1,5 +1,5 @@
 """
-THESE TESTS DON'T RUN IN TRAVIS (takes too long!!)
+THESE TESTS DON'T RUN IN GITHUB-ACTIONS (takes too long!!)
 ONLY THE BASIC ONES IN test_pythonpackage_basic.py DO.
 
 (This file basically covers all tests for any of the
@@ -42,7 +42,7 @@ def test_get_package_dependencies():
         if "MarkupSafe" in dep
     ]
     # Check setuptools not being in non-recursive deps:
-    # (It will be in recursive ones due to p4a's pep517 dependency)
+    # (It will be in recursive ones due to p4a's build dependency)
     assert "setuptools" not in deps_nonrecursive
     # Check setuptools is present in non-recursive deps,
     # if we also add build requirements:

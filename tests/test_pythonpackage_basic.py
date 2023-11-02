@@ -1,12 +1,11 @@
 """
 ONLY BASIC TEST SET. The additional ones are in test_pythonpackage.py.
 
-These are in a separate file because these were picked to run in travis,
+These are in a separate file because these were picked to run in github-actions,
 while the other additional ones aren't (for build time reasons).
 """
 
 import os
-import pytest
 import shutil
 import sys
 import subprocess
@@ -237,7 +236,7 @@ class TestGetSystemPythonExecutable():
             pybin,
             "-c",
             "import importlib\n"
-            "import json\n"
+            "import build.util\n"
             "import os\n"
             "import sys\n"
             "sys.path = [os.path.dirname(sys.argv[1])] + sys.path\n"
@@ -270,52 +269,19 @@ class TestGetSystemPythonExecutable():
             p2 = os.path.normpath(pybin)
             assert p1 == p2
         except RuntimeError as e:
-            if "pep517" in str(e.args):
-                # System python probably doesn't have pep517 available!
-                # (remember this is not in a virtualenv)
-                # Not much we can do in that case since pythonpackage needs it,
-                # so we'll skip this particular check.
+            # (remember this is not in a virtualenv)
+            # Some deps may not be installed, so we just avoid to raise
+            # an exception here, as a missing dep should not make the test
+            # fail.
+            if "build" in str(e.args):
+                # System python probably doesn't have build available!
+                pass
+            elif "toml" in str(e.args):
+                # System python probably doesn't have toml available!
                 pass
             else:
                 raise
 
-    def test_virtualenv(self):
-        """ Verifies that _get_system_python_executable() works correctly
-            if called with a python binary as found inside a virtualenv.
-        """
-
-        # Get system-wide python bin seen from here first:
-        pybin = _get_system_python_executable()
-        # (this call was not a test, we really just need the path here)
-
-        test_dir = tempfile.mkdtemp()
-        try:
-            # Check that in a virtualenv, the system-wide python is returned:
-            subprocess.check_output([
-                pybin, "-m", "virtualenv",
-                "--python=" + str(sys.executable),
-                "--",
-                os.path.join(test_dir, "virtualenv")
-            ])
-            subprocess.check_output([
-                os.path.join(test_dir, "virtualenv", "bin", "pip"),
-                "install", "-U", "pip"
-            ])
-            subprocess.check_output([
-                os.path.join(test_dir, "virtualenv", "bin", "pip"),
-                "install", "-U", "pep517<0.7.0"
-            ])
-            sys_python_path = self.run__get_system_python_executable(
-                os.path.join(test_dir, "virtualenv", "bin", "python")
-            )
-            assert os.path.normpath(sys_python_path).startswith(
-                os.path.normpath(pybin)
-            )
-        finally:
-            shutil.rmtree(test_dir)
-
-    @pytest.mark.skipif(int(sys.version.partition(".")[0]) < 3,
-                        reason="venv is python 3 only")
     def test_venv(self):
         """ Verifies that _get_system_python_executable() works correctly
             in a 'venv' (Python 3 only feature).
@@ -338,7 +304,8 @@ class TestGetSystemPythonExecutable():
             ])
             subprocess.check_output([
                 os.path.join(test_dir, "venv", "bin", "pip"),
-                "install", "-U", "pep517<0.7.0"
+                "install", "-U", "build", "toml", "sh<2.0", "colorama",
+                "appdirs", "jinja2", "packaging"
             ])
             sys_python_path = self.run__get_system_python_executable(
                 os.path.join(test_dir, "venv", "bin", "python")

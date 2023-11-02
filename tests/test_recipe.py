@@ -5,7 +5,6 @@ import unittest
 import warnings
 from unittest import mock
 from backports import tempfile
-from platform import system
 
 from pythonforandroid.build import Context
 from pythonforandroid.recipe import Recipe, import_recipe
@@ -135,7 +134,7 @@ class TestRecipe(unittest.TestCase):
         with (
                 patch_logger_debug()) as m_debug, (
                 mock.patch.object(Recipe, 'download_file')) as m_download_file, (
-                mock.patch('pythonforandroid.recipe.sh.touch')) as m_touch, (
+                mock.patch('pythonforandroid.recipe.touch')) as m_touch, (
                 tempfile.TemporaryDirectory()) as temp_dir:
             recipe.ctx.setup_dirs(temp_dir)
             recipe.download()
@@ -179,7 +178,7 @@ class TestRecipe(unittest.TestCase):
         retry = 5
         expected_call_args_list = [mock.call(url, filename, mock.ANY)] * retry
         assert m_urlretrieve.call_args_list == expected_call_args_list
-        expected_call_args_list = [mock.call(1)] * (retry - 1)
+        expected_call_args_list = [mock.call(2**i) for i in range(retry - 1)]
         assert m_sleep.call_args_list == expected_call_args_list
 
 
@@ -189,7 +188,7 @@ class TestLibraryRecipe(BaseClassSetupBootstrap, unittest.TestCase):
         Initialize a Context with a Bootstrap and a Distribution to properly
         test an library recipe, to do so we reuse `BaseClassSetupBootstrap`
         """
-        super(TestLibraryRecipe, self).setUp()
+        super().setUp()
         self.ctx.bootstrap = Bootstrap().get_bootstrap('sdl2', self.ctx)
         self.setUp_distribution_with_bootstrap(self.ctx.bootstrap)
 
@@ -205,6 +204,9 @@ class TestLibraryRecipe(BaseClassSetupBootstrap, unittest.TestCase):
 
     @mock.patch('pythonforandroid.recipe.exists')
     def test_should_build(self, mock_exists):
+        # avoid trying to find the recipe in a non-existing storage directory
+        self.ctx.storage_dir = None
+
         arch = ArchAarch_64(self.ctx)
         recipe = Recipe.get_recipe('openssl', self.ctx)
         recipe.ctx = self.ctx
@@ -242,34 +244,15 @@ class TesSTLRecipe(BaseClassSetupBootstrap, unittest.TestCase):
         test a recipe which depends on android's STL library, to do so we reuse
         `BaseClassSetupBootstrap`
         """
-        super(TesSTLRecipe, self).setUp()
+        super().setUp()
         self.ctx.bootstrap = Bootstrap().get_bootstrap('sdl2', self.ctx)
         self.setUp_distribution_with_bootstrap(self.ctx.bootstrap)
         self.ctx.python_recipe = Recipe.get_recipe('python3', self.ctx)
 
-    def test_get_stl_lib_dir(self):
-        """
-        Test that :meth:`~pythonforandroid.recipe.STLRecipe.get_stl_lib_dir`
-        returns the expected path for the stl library
-        """
-        arch = ArchAarch_64(self.ctx)
-        recipe = Recipe.get_recipe('icu', self.ctx)
-        self.assertTrue(recipe.need_stl_shared)
-        self.assertEqual(
-            recipe.get_stl_lib_dir(arch),
-            os.path.join(
-                self.ctx.ndk_dir,
-                'sources/cxx-stl/llvm-libc++/libs/{arch}'.format(
-                    arch=arch.arch
-                ),
-            ),
-        )
-
-    @mock.patch("pythonforandroid.archs.glob")
     @mock.patch('pythonforandroid.archs.find_executable')
     @mock.patch('pythonforandroid.build.ensure_dir')
     def test_get_recipe_env_with(
-        self, mock_ensure_dir, mock_find_executable, mock_glob
+        self, mock_ensure_dir, mock_find_executable
     ):
         """
         Test that :meth:`~pythonforandroid.recipe.STLRecipe.get_recipe_env`
@@ -281,41 +264,20 @@ class TesSTLRecipe(BaseClassSetupBootstrap, unittest.TestCase):
         """
         expected_compiler = (
             f"/opt/android/android-ndk/toolchains/"
-            f"llvm/prebuilt/{system().lower()}-x86_64/bin/clang"
+            f"llvm/prebuilt/{self.ctx.ndk.host_tag}/bin/clang"
         )
         mock_find_executable.return_value = expected_compiler
-        mock_glob.return_value = ["llvm"]
 
         arch = ArchAarch_64(self.ctx)
-        recipe = Recipe.get_recipe('icu', self.ctx)
+        recipe = Recipe.get_recipe('libgeos', self.ctx)
         assert recipe.need_stl_shared, True
         env = recipe.get_recipe_env(arch)
         #  check that the mocks have been called
-        mock_glob.assert_called()
         mock_ensure_dir.assert_called()
         mock_find_executable.assert_called_once_with(
-            expected_compiler, path=os.environ['PATH']
+            expected_compiler, path=self.ctx.env['PATH']
         )
         self.assertIsInstance(env, dict)
-
-        # check `CPPFLAGS`
-        expected_cppflags = {
-            '-I{stl_include}'.format(stl_include=recipe.stl_include_dir)
-        }
-        self.assertIn('CPPFLAGS', env)
-        for flags in expected_cppflags:
-            self.assertIn(flags, env['CPPFLAGS'])
-
-        # check `LIBS`
-        self.assertIn('LDFLAGS', env)
-        self.assertIn('-L' + recipe.get_stl_lib_dir(arch), env['LDFLAGS'])
-        self.assertIn('LIBS', env)
-        self.assertIn('-lc++_shared', env['LIBS'])
-
-        # check `CXXFLAGS` and `CXX`
-        for flag in {'CXXFLAGS', 'CXX'}:
-            self.assertIn(flag, env)
-            self.assertIn('-frtti -fexceptions', env[flag])
 
     @mock.patch('pythonforandroid.recipe.Recipe.install_libs')
     @mock.patch('pythonforandroid.recipe.isfile')
@@ -333,25 +295,20 @@ class TesSTLRecipe(BaseClassSetupBootstrap, unittest.TestCase):
         mock_isfile.return_value = False
 
         arch = ArchAarch_64(self.ctx)
-        recipe = Recipe.get_recipe('icu', self.ctx)
+        recipe = Recipe.get_recipe('libgeos', self.ctx)
         recipe.ctx = self.ctx
         assert recipe.need_stl_shared, True
         recipe.install_stl_lib(arch)
         mock_install_lib.assert_called_once_with(
             arch,
-            '{ndk_dir}/sources/cxx-stl/llvm-libc++/'
-            'libs/{arch}/lib{stl_lib}.so'.format(
-                ndk_dir=self.ctx.ndk_dir,
-                arch=arch.arch,
-                stl_lib=recipe.stl_lib_name,
-            ),
+            os.path.join(arch.ndk_lib_dir, f"lib{recipe.stl_lib_name}.so"),
         )
         mock_ensure_dir.assert_called()
 
     @mock.patch('pythonforandroid.recipe.Recipe.install_stl_lib')
     def test_postarch_build(self, mock_install_stl_lib):
         arch = ArchAarch_64(self.ctx)
-        recipe = Recipe.get_recipe('icu', self.ctx)
+        recipe = Recipe.get_recipe('libgeos', self.ctx)
         assert recipe.need_stl_shared, True
         recipe.postbuild_arch(arch)
         mock_install_stl_lib.assert_called_once_with(arch)
