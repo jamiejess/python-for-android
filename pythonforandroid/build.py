@@ -582,6 +582,7 @@ def build_recipes(build_order, python_modules, ctx, project_dir,
             else:
                 info('{} said it is already built, skipping'
                      .format(recipe.name))
+                recipe.install_libraries(arch)
 
         # 4) biglink everything
         info_main('# Biglinking object files')
