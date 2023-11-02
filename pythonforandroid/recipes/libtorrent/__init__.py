@@ -1,8 +1,11 @@
-from pythonforandroid.toolchain import Recipe, shprint, shutil, current_directory
 from multiprocessing import cpu_count
-from os.path import join, basename
 from os import listdir, walk
+from os.path import join, basename
+import shutil
+
 import sh
+
+from pythonforandroid.toolchain import Recipe, shprint, current_directory
 
 # This recipe builds libtorrent with Python bindings
 # It depends on Boost.Build and the source of several Boost libraries present
@@ -61,14 +64,14 @@ class LibtorrentRecipe(Recipe):
                     self.ctx.has_package('libtorrent', arch.arch))
 
     def prebuild_arch(self, arch):
-        super(LibtorrentRecipe, self).prebuild_arch(arch)
+        super().prebuild_arch(arch)
         if 'openssl' in recipe.ctx.recipe_build_order:
             # Patch boost user-config.jam to use openssl
             self.get_recipe('boost', self.ctx).apply_patch(
                 join(self.get_recipe_dir(), 'user-config-openssl.patch'), arch.arch)
 
     def build_arch(self, arch):
-        super(LibtorrentRecipe, self).build_arch(arch)
+        super().build_arch(arch)
         env = self.get_recipe_env(arch)
         env['PYTHON_HOST'] = self.ctx.hostpython
 
@@ -132,7 +135,7 @@ class LibtorrentRecipe(Recipe):
 
         python_libtorrent = get_lib_from(join(build_dir, 'bindings/python/bin'))
         shutil.copyfile(python_libtorrent,
-                        join(self.ctx.get_site_packages_dir(arch.arch), 'libtorrent.so'))
+                        join(self.ctx.get_site_packages_dir(arch), 'libtorrent.so'))
 
     def get_recipe_env(self, arch):
         # Use environment from boost recipe, cause we use b2 tool from boost

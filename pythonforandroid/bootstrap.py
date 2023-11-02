@@ -10,11 +10,12 @@ import shutil
 
 from pythonforandroid.logger import (shprint, info, logger, debug)
 from pythonforandroid.util import (
-    current_directory, ensure_dir, temp_directory, BuildInterruptingException)
+    current_directory, ensure_dir, temp_directory, BuildInterruptingException,
+    rmdir, move)
 from pythonforandroid.recipe import Recipe
 
 
-def copy_files(src_root, dest_root, override=True):
+def copy_files(src_root, dest_root, override=True, symlink=False):
     for root, dirnames, filenames in walk(src_root):
         for filename in filenames:
             subdir = normpath(root.replace(src_root, ""))
@@ -29,7 +30,10 @@ def copy_files(src_root, dest_root, override=True):
                 if override and os.path.exists(dest_file):
                     os.unlink(dest_file)
                 if not os.path.exists(dest_file):
-                    shutil.copy(src_file, dest_file)
+                    if symlink:
+                        os.symlink(src_file, dest_file)
+                    else:
+                        shutil.copy(src_file, dest_file)
             else:
                 os.makedirs(dest_file)
 
@@ -63,11 +67,10 @@ def _cmp_bootstraps_by_priority(a, b):
             return 1
 
 
-class Bootstrap(object):
+class Bootstrap:
     '''An Android project template, containing recipe stuff for
     compilation and templated fields for APK info.
     '''
-    name = ''
     jni_subdir = '/jni'
     ctx = None
 
@@ -78,7 +81,7 @@ class Bootstrap(object):
     distribution = None
 
     # All bootstraps should include Python in some way:
-    recipe_depends = [("python2", "python3"), 'android']
+    recipe_depends = ['python3', 'android']
 
     can_be_chosen_automatically = True
     '''Determines whether the bootstrap can be chosen as one that
@@ -109,7 +112,7 @@ class Bootstrap(object):
         and optional dependencies are being used,
         and returns a list of these.'''
         recipes = []
-        built_recipes = self.ctx.recipe_build_order
+        built_recipes = self.ctx.recipe_build_order or []
         for recipe in self.recipe_depends:
             if isinstance(recipe, (tuple, list)):
                 for alternative in recipe:
@@ -129,29 +132,49 @@ class Bootstrap(object):
     def get_dist_dir(self, name):
         return join(self.ctx.dist_dir, name)
 
-    def get_common_dir(self):
-        return os.path.abspath(join(self.bootstrap_dir, "..", 'common'))
-
     @property
     def name(self):
         modname = self.__class__.__module__
         return modname.split(".", 2)[-1]
 
+    def get_bootstrap_dirs(self):
+        """get all bootstrap directories, following the MRO path"""
+
+        # get all bootstrap names along the __mro__, cutting off Bootstrap and object
+        classes = self.__class__.__mro__[:-2]
+        bootstrap_names = [cls.name for cls in classes] + ['common']
+        bootstrap_dirs = [
+            join(self.ctx.root_dir, 'bootstraps', bootstrap_name)
+            for bootstrap_name in reversed(bootstrap_names)
+        ]
+        return bootstrap_dirs
+
+    def _copy_in_final_files(self):
+        if self.name == "sdl2":
+            # Get the paths for copying SDL2's java source code:
+            sdl2_recipe = Recipe.get_recipe("sdl2", self.ctx)
+            sdl2_build_dir = sdl2_recipe.get_jni_dir()
+            src_dir = join(sdl2_build_dir, "SDL", "android-project",
+                           "app", "src", "main", "java",
+                           "org", "libsdl", "app")
+            target_dir = join(self.dist_dir, 'src', 'main', 'java', 'org',
+                              'libsdl', 'app')
+
+            # Do actual copying:
+            info('Copying in SDL2 .java files from: ' + str(src_dir))
+            if not os.path.exists(target_dir):
+                os.makedirs(target_dir)
+            copy_files(src_dir, target_dir, override=True)
+
     def prepare_build_dir(self):
-        '''Ensure that a build dir exists for the recipe. This same single
-        dir will be used for building all different archs.'''
+        """Ensure that a build dir exists for the recipe. This same single
+        dir will be used for building all different archs."""
+        bootstrap_dirs = self.get_bootstrap_dirs()
+        # now do a cumulative copy of all bootstrap dirs
         self.build_dir = self.get_build_dir()
-        self.common_dir = self.get_common_dir()
-        copy_files(join(self.bootstrap_dir, 'build'), self.build_dir)
-        copy_files(join(self.common_dir, 'build'), self.build_dir,
-                   override=False)
-        if self.ctx.symlink_java_src:
-            info('Symlinking java src instead of copying')
-            shprint(sh.rm, '-r', join(self.build_dir, 'src'))
-            shprint(sh.mkdir, join(self.build_dir, 'src'))
-            for dirn in listdir(join(self.bootstrap_dir, 'build', 'src')):
-                shprint(sh.ln, '-s', join(self.bootstrap_dir, 'build', 'src', dirn),
-                        join(self.build_dir, 'src'))
+        for bootstrap_dir in bootstrap_dirs:
+            copy_files(join(bootstrap_dir, 'build'), self.build_dir, symlink=self.ctx.symlink_bootstrap_files)
+
         with current_directory(self.build_dir):
             with open('project.properties', 'w') as fileh:
                 fileh.write('target=android-{}'.format(self.ctx.android_api))
@@ -159,7 +182,12 @@ class Bootstrap(object):
     def prepare_dist_dir(self):
         ensure_dir(self.dist_dir)
 
-    def run_distribute(self):
+    def assemble_distribution(self):
+        ''' Copies all the files into the distribution (this function is
+            overridden by the specific bootstrap classes to do this)
+            and add in the distribution info.
+        '''
+        self._copy_in_final_files()
         self.distribution.save_info(self.dist_dir)
 
     @classmethod
@@ -195,7 +223,7 @@ class Bootstrap(object):
                 # Check if the bootstap's dependencies have an internal conflict:
                 for recipe in possible_dependencies:
                     recipe = Recipe.get_recipe(recipe, ctx)
-                    if any([conflict in recipes for conflict in recipe.conflicts]):
+                    if any(conflict in recipes for conflict in recipe.conflicts):
                         ok = False
                         break
                 # Check if bootstrap's dependencies conflict with chosen
@@ -207,8 +235,8 @@ class Bootstrap(object):
                         conflicts = []
                     else:
                         conflicts = recipe.conflicts
-                    if any([conflict in possible_dependencies
-                            for conflict in conflicts]):
+                    if any(conflict in possible_dependencies
+                            for conflict in conflicts):
                         ok = False
                         break
                 if ok and bs not in acceptable_bootstraps:
@@ -294,15 +322,16 @@ class Bootstrap(object):
         tgt_dir = join(dest_dir, arch.arch)
         ensure_dir(tgt_dir)
         for src_dir in src_dirs:
-            for lib in glob.glob(join(src_dir, wildcard)):
-                shprint(sh.cp, '-a', lib, tgt_dir)
+            libs = glob.glob(join(src_dir, wildcard))
+            if libs:
+                shprint(sh.cp, '-a', *libs, tgt_dir)
 
     def distribute_javaclasses(self, javaclass_dir, dest_dir="src"):
         '''Copy existing javaclasses from build dir to current dist dir.'''
         info('Copying java files')
         ensure_dir(dest_dir)
-        for filename in glob.glob(javaclass_dir):
-            shprint(sh.cp, '-a', filename, dest_dir)
+        filenames = glob.glob(javaclass_dir)
+        shprint(sh.cp, '-a', *filenames, dest_dir)
 
     def distribute_aars(self, arch):
         '''Process existing .aar bundles and copy to current dist dir.'''
@@ -335,8 +364,7 @@ class Bootstrap(object):
             debug("  to {}".format(so_tgt_dir))
             ensure_dir(so_tgt_dir)
             so_files = glob.glob(join(so_src_dir, '*.so'))
-            for f in so_files:
-                shprint(sh.cp, '-a', f, so_tgt_dir)
+            shprint(sh.cp, '-a', *so_files, so_tgt_dir)
 
     def strip_libraries(self, arch):
         info('Stripping libraries')
@@ -346,7 +374,7 @@ class Bootstrap(object):
         if len(tokens) > 1:
             strip = strip.bake(tokens[1:])
 
-        libs_dir = join(self.dist_dir, '_python_bundle',
+        libs_dir = join(self.dist_dir, f'_python_bundle__{arch.arch}',
                         '_python_bundle', 'modules')
         filens = shprint(sh.find, libs_dir, join(self.dist_dir, 'libs'),
                          '-iname', '*.so', _env=env).stdout.decode('utf-8')
@@ -367,9 +395,9 @@ class Bootstrap(object):
             if isdir(rd) and d.endswith('.egg'):
                 info('  ' + d)
                 files = [join(rd, f) for f in listdir(rd) if f != 'EGG-INFO']
-                if files:
-                    shprint(sh.mv, '-t', sitepackages, *files)
-                shprint(sh.rm, '-rf', d)
+                for f in files:
+                    move(f, sitepackages)
+                rmdir(d)
 
 
 def expand_dependencies(recipes, ctx):

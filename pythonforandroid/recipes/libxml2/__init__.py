@@ -6,7 +6,7 @@ import sh
 
 
 class Libxml2Recipe(Recipe):
-    version = '2.9.8'
+    version = '2.9.12'
     url = 'http://xmlsoft.org/sources/libxml2-{version}.tar.gz'
     depends = []
     patches = ['add-glob.c.patch']
@@ -43,7 +43,7 @@ class Libxml2Recipe(Recipe):
             shprint(sh.make, "libxml2.la", _env=env)
 
     def get_recipe_env(self, arch):
-        env = super(Libxml2Recipe, self).get_recipe_env(arch)
+        env = super().get_recipe_env(arch)
         env['CONFIG_SHELL'] = '/bin/bash'
         env['SHELL'] = '/bin/bash'
         env['CC'] += ' -I' + self.get_build_dir(arch.arch)

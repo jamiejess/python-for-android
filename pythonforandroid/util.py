@@ -1,29 +1,20 @@
 import contextlib
-from os.path import exists, join
-from os import getcwd, chdir, makedirs, walk, uname
-import sh
-import shutil
 from fnmatch import fnmatch
+import logging
+from os.path import exists, join
+from os import getcwd, chdir, makedirs, walk
+from pathlib import Path
+from platform import uname
+import shutil
 from tempfile import mkdtemp
-
-# This Python version workaround left for compatibility during initial version check
-try:  # Python 3
-    from urllib.request import FancyURLopener
-except ImportError:  # Python 2
-    from urllib import FancyURLopener
 
 from pythonforandroid.logger import (logger, Err_Fore, error, info)
 
+LOGGER = logging.getLogger("p4a.util")
 
-class WgetDownloader(FancyURLopener):
-    version = ('Wget/1.17.1')
-
-
-urlretrieve = WgetDownloader().retrieve
-
-
-build_platform = '{system}-{machine}'.format(
-    system=uname()[0], machine=uname()[-1]).lower()
+build_platform = "{system}-{machine}".format(
+    system=uname().system, machine=uname().machine
+).lower()
 """the build platform in the format `system-machine`. We use
 this string to define the right build system when compiling some recipes or
 to get the right path for clang compiler"""
@@ -52,22 +43,6 @@ def temp_directory():
         shutil.rmtree(temp_dir)
         logger.debug(''.join((Err_Fore.CYAN, ' - temp directory deleted ',
                               temp_dir, Err_Fore.RESET)))
-
-
-def ensure_dir(filename):
-    if not exists(filename):
-        makedirs(filename)
-
-
-def get_virtualenv_executable():
-    virtualenv = None
-    if virtualenv is None:
-        virtualenv = sh.which('virtualenv2')
-    if virtualenv is None:
-        virtualenv = sh.which('virtualenv-2.7')
-    if virtualenv is None:
-        virtualenv = sh.which('virtualenv')
-    return virtualenv
 
 
 def walk_valid_filens(base_dir, invalid_dir_names, invalid_file_patterns):
@@ -100,9 +75,23 @@ def walk_valid_filens(base_dir, invalid_dir_names, invalid_file_patterns):
                 yield join(dirn, filen)
 
 
+def load_source(module, filename):
+    # Python 3.5+
+    import importlib.util
+    if hasattr(importlib.util, 'module_from_spec'):
+        spec = importlib.util.spec_from_file_location(module, filename)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    else:
+        # Python 3.3 and 3.4:
+        from importlib.machinery import SourceFileLoader
+        return SourceFileLoader(module, filename).load_module()
+
+
 class BuildInterruptingException(Exception):
     def __init__(self, message, instructions=None):
-        super(BuildInterruptingException, self).__init__(message, instructions)
+        super().__init__(message, instructions)
         self.message = message
         self.instructions = instructions
 
@@ -116,3 +105,26 @@ def handle_build_exception(exception):
     if exception.instructions is not None:
         info('Instructions: {}'.format(exception.instructions))
     exit(1)
+
+
+def rmdir(dn, ignore_errors=False):
+    if not exists(dn):
+        return
+    LOGGER.debug("Remove directory and subdirectory {}".format(dn))
+    shutil.rmtree(dn, ignore_errors)
+
+
+def ensure_dir(dn):
+    if exists(dn):
+        return
+    LOGGER.debug("Create directory {0}".format(dn))
+    makedirs(dn)
+
+
+def move(source, destination):
+    LOGGER.debug("Moving {} to {}".format(source, destination))
+    shutil.move(source, destination)
+
+
+def touch(filename):
+    Path(filename).touch()

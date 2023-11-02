@@ -1,12 +1,13 @@
+from multiprocessing import cpu_count
+import os
+from os.path import exists, join
+from pythonforandroid.toolchain import info
+import sh
+import sys
+
 from pythonforandroid.recipe import CppCompiledComponentsPythonRecipe
 from pythonforandroid.logger import shprint, info_notify
-from pythonforandroid.util import current_directory
-from os.path import exists, join
-import sh
-from multiprocessing import cpu_count
-from pythonforandroid.toolchain import info
-import sys
-import os
+from pythonforandroid.util import current_directory, touch
 
 
 class ProtobufCppRecipe(CppCompiledComponentsPythonRecipe):
@@ -25,12 +26,12 @@ class ProtobufCppRecipe(CppCompiledComponentsPythonRecipe):
     protoc_dir = None
 
     def prebuild_arch(self, arch):
-        super(ProtobufCppRecipe, self).prebuild_arch(arch)
+        super().prebuild_arch(arch)
 
         patch_mark = join(self.get_build_dir(arch.arch), '.protobuf-patched')
         if self.ctx.python_recipe.name == 'python3' and not exists(patch_mark):
             self.apply_patch('fix-python3-compatibility.patch', arch.arch)
-            shprint(sh.touch, patch_mark)
+            touch(patch_mark)
 
         # During building, host needs to transpile .proto files to .py
         # ideally with the same version as protobuf runtime, or with an older one.
@@ -115,7 +116,7 @@ class ProtobufCppRecipe(CppCompiledComponentsPythonRecipe):
 
             hpenv = env.copy()
             shprint(hostpython, 'setup.py', 'install', '-O2',
-                    '--root={}'.format(self.ctx.get_python_install_dir()),
+                    '--root={}'.format(self.ctx.get_python_install_dir(arch.arch)),
                     '--install-lib=.',
                     _env=hpenv, *self.setup_extra_args)
 
@@ -124,12 +125,12 @@ class ProtobufCppRecipe(CppCompiledComponentsPythonRecipe):
         #   - https://stackoverflow.com/questions/13862562/
         #   google-protocol-buffers-not-found-when-trying-to-freeze-python-app
         open(
-            join(self.ctx.get_site_packages_dir(), 'google', '__init__.py'),
+            join(self.ctx.get_site_packages_dir(arch), 'google', '__init__.py'),
             'a',
         ).close()
 
     def get_recipe_env(self, arch):
-        env = super(ProtobufCppRecipe, self).get_recipe_env(arch)
+        env = super().get_recipe_env(arch)
         if self.protoc_dir is not None:
             # we need protoc with binary for host platform
             env['PROTOC'] = join(self.protoc_dir, 'bin', 'protoc')

@@ -26,7 +26,7 @@ class LibmysqlclientRecipe(Recipe):
         env = self.get_recipe_env(arch)
         with current_directory(join(self.get_build_dir(arch.arch), 'libmysqlclient')):
             shprint(sh.cp, '-t', '.', join(self.get_recipe_dir(), 'p4a.cmake'))
-            # shprint(sh.mkdir, 'Platform')
+            # ensure_dir('Platform')
             # shprint(sh.cp, '-t', 'Platform', join(self.get_recipe_dir(), 'Linux.cmake'))
             shprint(sh.rm, '-f', 'CMakeCache.txt')
             shprint(sh.cmake, '-G', 'Unix Makefiles',
@@ -38,7 +38,7 @@ class LibmysqlclientRecipe(Recipe):
             self.install_libs(arch, join('libmysql', 'libmysql.so'))
 
     # def get_recipe_env(self, arch=None):
-    #   env = super(LibmysqlclientRecipe, self).get_recipe_env(arch)
+    #   env = super().get_recipe_env(arch)
     #   env['WITHOUT_SERVER'] = 'ON'
     #   ncurses = self.get_recipe('ncurses', self)
     #   # env['CFLAGS'] += ' -I' + join(ncurses.get_build_dir(arch.arch),

@@ -7,19 +7,6 @@ from math import log10
 from collections import defaultdict
 from colorama import Style as Colo_Style, Fore as Colo_Fore
 
-# six import left for Python 2 compatibility during initial Python version check
-import six
-
-# This codecs change fixes a bug with log output, but crashes under python3
-if not six.PY3:
-    import codecs
-    stdout = codecs.getwriter('utf8')(stdout)
-    stderr = codecs.getwriter('utf8')(stderr)
-
-if six.PY2:
-    unistr = unicode  # noqa F821
-else:
-    unistr = str
 
 # monkey patch to show full output
 sh.ErrorReturnCode.truncate_cap = 999999
@@ -42,7 +29,7 @@ class LevelDifferentiatingFormatter(logging.Formatter):
             record.msg = '{}{}[DEBUG]{}{}:   '.format(
                 Err_Style.BRIGHT, Err_Fore.LIGHTBLACK_EX, Err_Fore.RESET,
                 Err_Style.RESET_ALL) + record.msg
-        return super(LevelDifferentiatingFormatter, self).format(record)
+        return super().format(record)
 
 
 logger = logging.getLogger('p4a')
@@ -61,7 +48,7 @@ warning = logger.warning
 error = logger.error
 
 
-class colorama_shim(object):
+class colorama_shim:
 
     def __init__(self, real):
         self._dict = defaultdict(str)
@@ -114,12 +101,12 @@ def shorten_string(string, max_width):
         return string
     visible = max_width - 16 - int(log10(string_len))
     # expected suffix len "...(and XXXXX more)"
-    if not isinstance(string, unistr):
-        visstring = unistr(string[:visible], errors='ignore')
+    if not isinstance(string, str):
+        visstring = str(string[:visible], errors='ignore')
     else:
         visstring = string[:visible]
     return u''.join((visstring, u'...(and ',
-                     unistr(string_len - visible), u' more)'))
+                     str(string_len - visible), u' more)'))
 
 
 def get_console_width():
@@ -212,9 +199,9 @@ def shprint(command, *args, **kwargs):
                           re_filter_in=None, re_filter_out=None):
                 lines = out.splitlines()
                 if re_filter_in is not None:
-                    lines = [l for l in lines if re_filter_in.search(l)]
+                    lines = [line for line in lines if re_filter_in.search(line)]
                 if re_filter_out is not None:
-                    lines = [l for l in lines if not re_filter_out.search(l)]
+                    lines = [line for line in lines if not re_filter_out.search(line)]
                 if tail_n == 0 or len(lines) <= tail_n:
                     info('{}:\n{}\t{}{}'.format(
                         name, forecolor, '\t\n'.join(lines), Out_Fore.RESET))
@@ -227,17 +214,18 @@ def shprint(command, *args, **kwargs):
                       re.compile(filter_in) if filter_in else None,
                       re.compile(filter_out) if filter_out else None)
             printtail(err.stderr.decode('utf-8'), 'STDERR', Err_Fore.RED)
-        if is_critical:
-            env = kwargs.get("env")
+        if is_critical or full_debug:
+            env = kwargs.get("_env")
             if env is not None:
                 info("{}ENV:{}\n{}\n".format(
                     Err_Fore.YELLOW, Err_Fore.RESET, "\n".join(
-                        "set {}={}".format(n, v) for n, v in env.items())))
+                        "export {}='{}'".format(n, v) for n, v in env.items())))
             info("{}COMMAND:{}\ncd {} && {} {}\n".format(
                 Err_Fore.YELLOW, Err_Fore.RESET, os.getcwd(), command,
                 ' '.join(args)))
             warning("{}ERROR: {} failed!{}".format(
                 Err_Fore.RED, command, Err_Fore.RESET))
+        if is_critical:
             exit(1)
         else:
             raise

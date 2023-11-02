@@ -8,11 +8,11 @@ from pythonforandroid.logger import info, warning
 from pythonforandroid.util import BuildInterruptingException
 
 # We only check the NDK major version
-MIN_NDK_VERSION = 19
-MAX_NDK_VERSION = 20
+MIN_NDK_VERSION = 25
+MAX_NDK_VERSION = 25
 
 # DO NOT CHANGE LINE FORMAT: buildozer parses the existence of a RECOMMENDED_NDK_VERSION
-RECOMMENDED_NDK_VERSION = "19b"
+RECOMMENDED_NDK_VERSION = "25b"
 
 NDK_DOWNLOAD_URL = "https://developer.android.com/ndk/downloads/"
 
@@ -135,15 +135,15 @@ def read_ndk_version(ndk_dir):
     return ndk_version
 
 
-MIN_TARGET_API = 26
+MIN_TARGET_API = 30
 
 # highest version tested to work fine with SDL2
 # should be a good default for other bootstraps too
-RECOMMENDED_TARGET_API = 27
+RECOMMENDED_TARGET_API = 33
 
 ARMEABI_MAX_TARGET_API = 21
 OLD_API_MESSAGE = (
-    'Target APIs lower than 26 are no longer supported on Google Play, '
+    'Target APIs lower than 30 are no longer supported on Google Play, '
     'and are not recommended. Note that the Target API can be higher than '
     'your device Android version, and should usually be as high as possible.')
 
@@ -153,6 +153,7 @@ def check_target_api(api, arch):
     recommendation
     """
 
+    # FIXME: Should We remove support for armeabi (ARMv5)?
     if api >= ARMEABI_MAX_TARGET_API and arch == 'armeabi':
         raise BuildInterruptingException(
             UNSUPPORTED_NDK_API_FOR_ARMEABI_MESSAGE.format(
@@ -194,10 +195,8 @@ MIN_PYTHON_VERSION = LooseVersion('{major}.{minor}'.format(major=MIN_PYTHON_MAJO
                                                            minor=MIN_PYTHON_MINOR_VERSION))
 PY2_ERROR_TEXT = (
     'python-for-android no longer supports running under Python 2. Either upgrade to '
-    'Python {min_version} or higher (recommended), or revert to python-for-android 2019.07.08. '
-    'Note that you *can* still target Python 2 on Android by including python2 in your '
-    'requirements.').format(
-        min_version=MIN_PYTHON_VERSION)
+    'Python {min_version} or higher (recommended), or revert to python-for-android 2019.07.08.'
+).format(min_version=MIN_PYTHON_VERSION)
 
 PY_VERSION_ERROR_TEXT = (
     'Your Python version {user_major}.{user_minor} is not supported by python-for-android, '

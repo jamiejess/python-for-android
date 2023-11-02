@@ -19,7 +19,7 @@ class LibZBarRecipe(Recipe):
     built_libraries = {'libzbar.so': 'zbar/.libs'}
 
     def get_recipe_env(self, arch=None, with_flags_in_cc=True):
-        env = super(LibZBarRecipe, self).get_recipe_env(arch, with_flags_in_cc)
+        env = super().get_recipe_env(arch, with_flags_in_cc)
         libiconv = self.get_recipe('libiconv', self.ctx)
         libiconv_dir = libiconv.get_build_dir(arch.arch)
         env['CFLAGS'] += ' -I' + os.path.join(libiconv_dir, 'include')
@@ -33,8 +33,8 @@ class LibZBarRecipe(Recipe):
             shprint(
                 sh.Command('./configure'),
                 '--host=' + arch.command_prefix,
-                '--target=' + arch.toolchain_prefix,
-                '--prefix=' + self.ctx.get_python_install_dir(),
+                '--target=' + arch.command_prefix,
+                '--prefix=' + self.ctx.get_python_install_dir(arch.arch),
                 # Python bindings are compiled in a separated recipe
                 '--with-python=no',
                 '--with-gtk=no',

@@ -1,11 +1,10 @@
-from __future__ import print_function
-from setuptools import Command
-
-import sys
-from os.path import realpath, join, exists, dirname, curdir, basename, split
-from os import makedirs
 from glob import glob
-from shutil import rmtree, copyfile
+from os.path import realpath, join, dirname, curdir, basename, split
+from setuptools import Command
+from shutil import copyfile
+import sys
+
+from pythonforandroid.util import rmdir, ensure_dir
 
 
 def argv_contains(t):
@@ -15,16 +14,16 @@ def argv_contains(t):
     return False
 
 
-class BdistAPK(Command):
-    description = 'Create an APK with python-for-android'
+class Bdist(Command):
 
     user_options = []
+    package_type = None
 
     def initialize_options(self):
         for option in self.user_options:
             setattr(self, option[0].strip('=').replace('-', '_'), None)
 
-        option_dict = self.distribution.get_option_dict('apk')
+        option_dict = self.distribution.get_option_dict(self.package_type)
 
         # This is a hack, we probably aren't supposed to loop through
         # the option_dict so early because distutils does exactly the
@@ -35,7 +34,7 @@ class BdistAPK(Command):
 
     def finalize_options(self):
 
-        setup_options = self.distribution.get_option_dict('apk')
+        setup_options = self.distribution.get_option_dict(self.package_type)
         for (option, (source, value)) in setup_options.items():
             if source == 'command line':
                 continue
@@ -44,6 +43,9 @@ class BdistAPK(Command):
                 if option == 'permissions':
                     for perm in value:
                         sys.argv.append('--permission={}'.format(perm))
+                elif option == 'orientation':
+                    for orient in value:
+                        sys.argv.append('--orientation={}'.format(orient))
                 elif value in (None, 'None'):
                     sys.argv.append('--{}'.format(option))
                 else:
@@ -76,7 +78,7 @@ class BdistAPK(Command):
         self.prepare_build_dir()
 
         from pythonforandroid.entrypoints import main
-        sys.argv[1] = 'apk'
+        sys.argv[1] = self.package_type
         main()
 
     def prepare_build_dir(self):
@@ -88,9 +90,8 @@ class BdistAPK(Command):
                   'that.')
 
         bdist_dir = 'build/bdist.android-{}'.format(self.arch)
-        if exists(bdist_dir):
-            rmtree(bdist_dir)
-        makedirs(bdist_dir)
+        rmdir(bdist_dir)
+        ensure_dir(bdist_dir)
 
         globs = []
         for directory, patterns in self.distribution.package_data.items():
@@ -105,11 +106,10 @@ class BdistAPK(Command):
         if not argv_contains('--launcher'):
             for filen in filens:
                 new_dir = join(bdist_dir, dirname(filen))
-                if not exists(new_dir):
-                    makedirs(new_dir)
+                ensure_dir(new_dir)
                 print('Including {}'.format(filen))
                 copyfile(filen, join(bdist_dir, filen))
-                if basename(filen) in ('main.py', 'main.pyo'):
+                if basename(filen) in ('main.py', 'main.pyc'):
                     main_py_dirs.append(filen)
 
         # This feels ridiculous, but how else to define the main.py dir?
@@ -128,6 +128,24 @@ class BdistAPK(Command):
             )
 
 
+class BdistAPK(Bdist):
+    """distutil command handler for 'apk'."""
+    description = 'Create an APK with python-for-android'
+    package_type = 'apk'
+
+
+class BdistAAR(Bdist):
+    """distutil command handler for 'aar'."""
+    description = 'Create an AAR with python-for-android'
+    package_type = 'aar'
+
+
+class BdistAAB(Bdist):
+    """distutil command handler for 'aab'."""
+    description = 'Create an AAB with python-for-android'
+    package_type = 'aab'
+
+
 def _set_user_options():
     # This seems like a silly way to do things, but not sure if there's a
     # better way to pass arbitrary options onwards to p4a
@@ -141,6 +159,8 @@ def _set_user_options():
                 user_options.append((arg[2:], None, None))
 
     BdistAPK.user_options = user_options
+    BdistAAB.user_options = user_options
+    BdistAAR.user_options = user_options
 
 
 _set_user_options()

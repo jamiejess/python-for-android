@@ -189,17 +189,6 @@ int main(int argc, char *argv[]) {
   }
 
   Py_Initialize();
-
-#if PY_MAJOR_VERSION < 3
-  // Can't Py_SetPath in python2 but we can set PySys_SetPath, which must
-  // be applied after Py_Initialize rather than before like Py_SetPath
-  #if PY_MICRO_VERSION >= 15
-    // Only for python native-build
-    PySys_SetPath(paths);
-  #endif
-  PySys_SetArgv(argc, argv);
-#endif
-
   LOGP("Initialized python");
 
   /* ensure threads will work.
@@ -217,7 +206,7 @@ int main(int argc, char *argv[]) {
   /* inject our bootstrap code to redirect python stdin/stdout
    * replace sys.path with our path
    */
-  PyRun_SimpleString("import sys, posix\n");
+  PyRun_SimpleString("import io, sys, posix\n");
 
   char add_site_packages_dir[256];
 
@@ -235,17 +224,19 @@ int main(int argc, char *argv[]) {
   }
 
   PyRun_SimpleString(
-      "class LogFile(object):\n"
+      "class LogFile(io.IOBase):\n"
       "    def __init__(self):\n"
-      "        self.buffer = ''\n"
+      "        self.__buffer = ''\n"
+      "    def readable(self):\n"
+      "        return False\n"
+      "    def writable(self):\n"
+      "        return True\n"
       "    def write(self, s):\n"
-      "        s = self.buffer + s\n"
-      "        lines = s.split(\"\\n\")\n"
+      "        s = self.__buffer + s\n"
+      "        lines = s.split('\\n')\n"
       "        for l in lines[:-1]:\n"
-      "            androidembed.log(l)\n"
-      "        self.buffer = lines[-1]\n"
-      "    def flush(self):\n"
-      "        return\n"
+      "            androidembed.log(l.replace('\\x00', ''))\n"
+      "        self.__buffer = lines[-1]\n"
       "sys.stdout = sys.stderr = LogFile()\n"
       "print('Android path', sys.path)\n"
       "import os\n"
@@ -262,14 +253,10 @@ int main(int argc, char *argv[]) {
    */
   LOGP("Run user program, change dir and execute entrypoint");
 
-  /* Get the entrypoint, search the .pyo then .py
+  /* Get the entrypoint, search the .pyc then .py
    */
   char *dot = strrchr(env_entrypoint, '.');
-#if PY_MAJOR_VERSION > 2
   char *ext = ".pyc";
-#else
-  char *ext = ".pyo";
-#endif
   if (dot <= 0) {
     LOGP("Invalid entrypoint, abort.");
     return -1;
@@ -285,21 +272,17 @@ int main(int argc, char *argv[]) {
       entrypoint[strlen(env_entrypoint) - 1] = '\0';
       LOGP(entrypoint);
       if (!file_exists(entrypoint)) {
-        LOGP("Entrypoint not found (.pyc/.pyo, fallback on .py), abort");
+        LOGP("Entrypoint not found (.pyc, fallback on .py), abort");
         return -1;
       }
     } else {
       strcpy(entrypoint, env_entrypoint);
     }
   } else if (!strcmp(dot, ".py")) {
-    /* if .py is passed, check the pyo version first */
+    /* if .py is passed, check the pyc version first */
     strcpy(entrypoint, env_entrypoint);
     entrypoint[strlen(env_entrypoint) + 1] = '\0';
-#if PY_MAJOR_VERSION > 2
     entrypoint[strlen(env_entrypoint)] = 'c';
-#else
-    entrypoint[strlen(env_entrypoint)] = 'o';
-#endif
     if (!file_exists(entrypoint)) {
       /* fallback on pure python version */
       if (!file_exists(env_entrypoint)) {
@@ -309,7 +292,7 @@ int main(int argc, char *argv[]) {
       strcpy(entrypoint, env_entrypoint);
     }
   } else {
-    LOGP("Entrypoint have an invalid extension (must be .py or .pyc/.pyo), abort.");
+    LOGP("Entrypoint have an invalid extension (must be .py or .pyc), abort.");
     return -1;
   }
   // LOGP("Entrypoint is:");
@@ -330,8 +313,7 @@ int main(int argc, char *argv[]) {
     ret = 1;
     PyErr_Print(); /* This exits with the right code if SystemExit. */
     PyObject *f = PySys_GetObject("stdout");
-    if (PyFile_WriteString(
-            "\n", f)) /* python2 used Py_FlushLine, but this no longer exists */
+    if (PyFile_WriteString("\n", f))
       PyErr_Clear();
   }
 
@@ -378,7 +360,6 @@ JNIEXPORT void JNICALL Java_org_kivy_android_PythonService_nativeStart(
     jstring j_python_home,
     jstring j_python_path,
     jstring j_arg) {
-
   jboolean iscopy;
   const char *android_private =
       (*env)->GetStringUTFChars(env, j_android_private, &iscopy);

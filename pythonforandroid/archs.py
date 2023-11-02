@@ -1,17 +1,13 @@
 from distutils.spawn import find_executable
 from os import environ
-from os.path import join, split
+from os.path import join
 from multiprocessing import cpu_count
-from glob import glob
 
 from pythonforandroid.recipe import Recipe
 from pythonforandroid.util import BuildInterruptingException, build_platform
 
 
-class Arch(object):
-
-    toolchain_prefix = None
-    '''The prefix for the toolchain dir in the NDK.'''
+class Arch:
 
     command_prefix = None
     '''The prefix for NDK commands such as gcc.'''
@@ -29,8 +25,7 @@ class Arch(object):
 
     common_cppflags = [
         '-DANDROID',
-        '-D__ANDROID_API__={ctx.ndk_api}',
-        '-I{ctx.ndk_dir}/sysroot/usr/include/{command_prefix}',
+        '-I{ctx.ndk.sysroot_include_dir}',
         '-I{python_includes}',
     ]
 
@@ -46,7 +41,6 @@ class Arch(object):
     ]
 
     def __init__(self, ctx):
-        super(Arch, self).__init__()
         self.ctx = ctx
 
         # Allows injecting additional linker paths used by any recipe.
@@ -57,6 +51,14 @@ class Arch(object):
 
     def __str__(self):
         return self.arch
+
+    @property
+    def ndk_lib_dir(self):
+        return join(self.ctx.ndk.sysroot_lib_dir, self.command_prefix)
+
+    @property
+    def ndk_lib_dir_versioned(self):
+        return join(self.ndk_lib_dir, str(self.ctx.ndk_api))
 
     @property
     def include_dirs(self):
@@ -74,21 +76,6 @@ class Arch(object):
         # See: https://developer.android.com/ndk/guides/other_build_systems
         return '{triplet}{ndk_api}'.format(
             triplet=self.command_prefix, ndk_api=self.ctx.ndk_api
-        )
-
-    @property
-    def clang_path(self):
-        """Full path of the clang compiler"""
-        llvm_dirname = split(
-            glob(join(self.ctx.ndk_dir, 'toolchains', 'llvm*'))[-1]
-        )[-1]
-        return join(
-            self.ctx.ndk_dir,
-            'toolchains',
-            llvm_dirname,
-            'prebuilt',
-            build_platform,
-            'bin',
         )
 
     @property
@@ -117,10 +104,22 @@ class Arch(object):
             )
         if plus_plus:
             compiler += '++'
-        return join(self.clang_path, compiler)
+        return join(self.ctx.ndk.llvm_bin_dir, compiler)
 
     def get_env(self, with_flags_in_cc=True):
         env = {}
+
+        # HOME: User's home directory
+        #
+        # Many tools including p4a store outputs in the user's home
+        # directory. This is found from the HOME environment variable
+        # and falls back to the system account database. Setting HOME
+        # can be used to globally divert these tools to use a different
+        # path. Furthermore, in containerized environments the user may
+        # not exist in the account database, so if HOME isn't set than
+        # these tools will fail.
+        if 'HOME' in environ:
+            env['HOME'] = environ['HOME']
 
         # CFLAGS/CXXFLAGS: the processor flags
         env['CFLAGS'] = ' '.join(self.common_cflags).format(target=self.target)
@@ -134,7 +133,7 @@ class Arch(object):
             ctx=self.ctx,
             command_prefix=self.command_prefix,
             python_includes=join(
-                self.ctx.get_python_install_dir(),
+                self.ctx.get_python_install_dir(self.arch),
                 'include/python{}'.format(self.ctx.python_recipe.version[0:3]),
             ),
         )
@@ -146,9 +145,9 @@ class Arch(object):
             + " ".join(
                 [
                     "-L'"
-                    + l.replace("'", "'\"'\"'")
+                    + link_path.replace("'", "'\"'\"'")
                     + "'"  # no shlex.quote in py2
-                    for l in self.extra_global_link_paths
+                    for link_path in self.extra_global_link_paths
                 ]
             )
             + ' ' + ' '.join(self.common_ldflags).format(
@@ -172,12 +171,10 @@ class Arch(object):
             )
 
         # Compiler: `CC` and `CXX` (and make sure that the compiler exists)
-        environ['PATH'] = '{clang_path}:{path}'.format(
-            clang_path=self.clang_path, path=environ['PATH']
-        )
-        cc = find_executable(self.clang_exe, path=environ['PATH'])
+        env['PATH'] = self.ctx.env['PATH']
+        cc = find_executable(self.clang_exe, path=env['PATH'])
         if cc is None:
-            print('Searching path are: {!r}'.format(environ['PATH']))
+            print('Searching path are: {!r}'.format(env['PATH']))
             raise BuildInterruptingException(
                 'Couldn\'t find executable for CC. This indicates a '
                 'problem locating the {} executable in the Android '
@@ -201,21 +198,18 @@ class Arch(object):
                 execxx=self.clang_exe_cxx,
                 ccache=ccache)
 
-        # Android's binaries
-        command_prefix = self.command_prefix
-        env['AR'] = '{}-ar'.format(command_prefix)
-        env['RANLIB'] = '{}-ranlib'.format(command_prefix)
-        env['STRIP'] = '{}-strip --strip-unneeded'.format(command_prefix)
+        # Android's LLVM binutils
+        env['AR'] = self.ctx.ndk.llvm_ar
+        env['RANLIB'] = self.ctx.ndk.llvm_ranlib
+        env['STRIP'] = f'{self.ctx.ndk.llvm_strip} --strip-unneeded'
+        env['READELF'] = self.ctx.ndk.llvm_readelf
+        env['OBJCOPY'] = self.ctx.ndk.llvm_objcopy
+
         env['MAKE'] = 'make -j{}'.format(str(cpu_count()))
-        env['READELF'] = '{}-readelf'.format(command_prefix)
-        env['NM'] = '{}-nm'.format(command_prefix)
-        env['LD'] = '{}-ld'.format(command_prefix)
 
         # Android's arch/toolchain
         env['ARCH'] = self.arch
         env['NDK_API'] = 'android-{}'.format(str(self.ctx.ndk_api))
-        env['TOOLCHAIN_PREFIX'] = self.ctx.toolchain_prefix
-        env['TOOLCHAIN_VERSION'] = self.ctx.toolchain_version
 
         # Custom linker options
         env['LDSHARED'] = env['CC'] + ' ' + ' '.join(self.common_ldshared)
@@ -233,16 +227,18 @@ class Arch(object):
             ),
         )
 
-        env['PATH'] = environ['PATH']
+        # for reproducible builds
+        if 'SOURCE_DATE_EPOCH' in environ:
+            for k in 'LC_ALL TZ SOURCE_DATE_EPOCH PYTHONHASHSEED BUILD_DATE BUILD_TIME'.split():
+                if k in environ:
+                    env[k] = environ[k]
 
         return env
 
 
 class ArchARM(Arch):
     arch = "armeabi"
-    toolchain_prefix = 'arm-linux-androideabi'
     command_prefix = 'arm-linux-androideabi'
-    platform_dir = 'arch-arm'
 
     @property
     def target(self):
@@ -266,40 +262,34 @@ class ArchARMv7_a(ArchARM):
 
 class Archx86(Arch):
     arch = 'x86'
-    toolchain_prefix = 'x86'
     command_prefix = 'i686-linux-android'
-    platform_dir = 'arch-x86'
     arch_cflags = [
         '-march=i686',
-        '-mtune=intel',
         '-mssse3',
         '-mfpmath=sse',
         '-m32',
+        '-fPIC',
     ]
 
 
 class Archx86_64(Arch):
     arch = 'x86_64'
-    toolchain_prefix = 'x86_64'
     command_prefix = 'x86_64-linux-android'
-    platform_dir = 'arch-x86_64'
     arch_cflags = [
         '-march=x86-64',
         '-msse4.2',
         '-mpopcnt',
         '-m64',
-        '-mtune=intel',
         '-fPIC',
     ]
 
 
 class ArchAarch_64(Arch):
     arch = 'arm64-v8a'
-    toolchain_prefix = 'aarch64-linux-android'
     command_prefix = 'aarch64-linux-android'
-    platform_dir = 'arch-arm64'
     arch_cflags = [
         '-march=armv8-a',
+        '-fPIC'
         # '-I' + join(dirname(__file__), 'includes', 'arm64-v8a'),
     ]
 
@@ -309,6 +299,6 @@ class ArchAarch_64(Arch):
     # NDK r19 build system, because it seems that we don't need it anymore,
     # do we need them?
     # def get_env(self, with_flags_in_cc=True):
-    #     env = super(ArchAarch_64, self).get_env(with_flags_in_cc)
+    #     env = super().get_env(with_flags_in_cc)
     #     env['EXTRA_CFLAGS'] = self.arch_cflags[-1]
     #     return env
